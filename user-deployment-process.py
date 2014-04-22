@@ -1,6 +1,8 @@
 __author__ = 'jemartin'
 
 import csv
+import re
+import argparse
 
 deployments = []
 
@@ -39,12 +41,11 @@ skip = [
     'OtherBusinessDrivers',
     'WhatDoYouLikeMost',
     'OkToContact',
-    'Label',
     'OtherHypervisor',
     'OtherBlockStorageDriver',
     'OtherNetworkDriver',
     'WhyNovaNetwork',
-    'OtherIndentityDriver',
+    'OtherIdentityDriver',
     'WorkloadsDescription',
     'OtherWorkloadsDescription',
     'OtherDeploymentTools',
@@ -126,6 +127,7 @@ def process_other_hypervisor(otherhyp, currenthyp):
     hyp_mapping["Baremetal"] = "Bare Metal"
     hyp_mapping["baremetal"] = "Bare Metal"
     hyp_mapping["Docker"] = "Docker"
+    hyp_mapping["docker.io"] = "Docker"
 
     for hyp in hyp_mapping.keys():
         if hyp in otherhyp and hyp not in newhyp:
@@ -154,6 +156,7 @@ def process_other_blockstorage(otherbs, currentbs):
     newbs = currentbs
     bs_mapping = {}
     bs_mapping["Own"] = "Custom"
+    bs_mapping["my own"] = "Custom"
     bs_mapping["Patched"] = "Custom"
     bs_mapping["Custom"] = "Custom"
     bs_mapping["custom"] = "Custom"
@@ -169,6 +172,8 @@ def process_other_blockstorage(otherbs, currentbs):
     bs_mapping["Equallogic"] = "EqualLogic"
     bs_mapping["EqualLogic"] = "EqualLogic"
     bs_mapping["ZFS"] = "ZFS"
+    bs_mapping["Violin"] = "Violin"
+    bs_mapping["HP MSA"] = "SAN/HP"
 
     for bs in bs_mapping.keys():
         if bs in otherbs and bs not in newbs:
@@ -210,6 +215,9 @@ def process_other_networkdriver(othernet, currentnet):
     net_mapping["juniper"] = "Juniper"
     net_mapping["Arista"] = "Arista"
     net_mapping["Arista Networks"] = "Arista"
+    net_mapping["ML2"] = "ML2"
+    net_mapping["nova-network"] = "nova-network"
+    net_mapping["Not sure"] = "Other"
 
     for net in net_mapping.keys():
         if net in othernet and net not in newnet:
@@ -246,6 +254,7 @@ def process_other_deptool(otherdt, currentdt):
     dt_mapping["custom"] = "Custom"
     dt_mapping["Homegrown"] = "Custom"
     dt_mapping["Home made"] = "Custom"
+    dt_mapping["own tool"] = "Custom"
     dt_mapping["Propriatary"] = "Custom"
     dt_mapping["Proprietary"] = "Custom"
     dt_mapping["proprietary"] = "Custom"
@@ -256,16 +265,21 @@ def process_other_deptool(otherdt, currentdt):
     dt_mapping["SwiftStack"] = "SwiftStack"
     dt_mapping["Cfengine"] = "CFEngine"
     dt_mapping["CFengine"] = "CFEngine"
+    dt_mapping["CFEngine"] = "CFEngine"
     dt_mapping["cfengine"] = "CFEngine"
     dt_mapping["Foreman"] = "Foreman"
+    dt_mapping["theforeman"] = "Foreman"
     dt_mapping["Fuel"] = "Fuel"
     dt_mapping["FA"] = "FAI"
     dt_mapping["by hand"] = "None"
     dt_mapping["Manual"] = "None"
+    dt_mapping["manual"] = "None"
     dt_mapping["ansible"] = "Ansible"
     dt_mapping["Ansible"] = "Ansible"
     dt_mapping["Anvil"] = "Anvil"
     dt_mapping["StackOps"] = "StackOps"
+    dt_mapping["Juju"] = "Juju"
+    dt_mapping["juju"] = "Juju"
 
     for dt in dt_mapping.keys():
         if dt in otherdt and dt not in newdt:
@@ -285,7 +299,44 @@ def process_other_deptool(otherdt, currentdt):
 
     return newdt
 
+def process_numusers(v):
+    normalized_values = ['Prefer not to say',
+                         '1-100 users',
+                         '101-1,000 users',
+                         '1,001-5,000 users',
+                         '5,001-10,000 users',
+                         '10,001-50,000 users',
+                         '50,001-100,000 users',
+                         'More than 100,000 users']
+    if v in normalized_values:
+        return v
 
+    if v == '':
+        return normalized_values[0]
+
+    if isinstance(v, basestring):
+        try:
+            v = int(re.sub('[+~<>]', '', v))
+        except ValueError as e:
+            pass
+
+    if isinstance(v, int):
+        if v < 101:
+            return normalized_values[1]
+        if v < 1001:
+            return normalized_values[2]
+        if v < 5001:
+            return normalized_values[3]
+        if v < 10001:
+            return normalized_values[4]
+        if v < 50001:
+            return normalized_values[5]
+        if v < 100001:
+            return normalized_values[6]
+        if v > 100001:
+            return normalized_values[7]
+
+    return normalized_values[0]
 
 def normalize(d, otheros=None, otherhyp=None, otherbs=None, othernet=None,
               otherdt=None):
@@ -338,22 +389,46 @@ def process_row(r):
         if r.get('OtherDeploymentTools', '') != '':
             otherdt = process_other_deptool(r.get('OtherDeploymentTools', ''),
                                              r.get('DeploymentTools', ''))
+
+        r['NumCloudUsers'] = process_numusers(r.get('NumCloudUsers', ''))
+
         x = normalize(r, otheros, otherhyp, otherbs, othernet, otherdt)
         #print x.get('DeploymentID')
+
         deployments.append(x)
 
 
 def main():
 
-    with open('deployment_surveys_20131011.csv', 'rU') as f:
+    parser = argparse.ArgumentParser(description='Pre-process survey')
+    parser.add_argument("input",
+                    help="Input file")
+    parser.add_argument("output",
+                    help="Output file")
+
+    args = parser.parse_args()
+    with open(args.input, 'rU') as f:
         r = csv.DictReader(f)
         for row in r:
-            new_row = process_row(row)
+            process_row(row)
 
-    keys = sorted(newfields.keys())
+    # force some field position / assuming that those keys are not changing
+    keys = ['SurveyID',
+            'DeploymentID',
+            'IsPublic',
+            'PrimaryCountry',
+            'OrgSize',
+            'Industry',
+            'DeploymentType',
+            'NumCloudUsers']
+
+    for k in sorted(newfields.keys()):
+        if k not in keys:
+            keys.append(k)
+
     print keys
 
-    with open('deployments.csv', 'w') as f:
+    with open(args.output, 'w') as f:
         w = csv.DictWriter(f, keys)
         w.writeheader()
         w.writerows(deployments)
