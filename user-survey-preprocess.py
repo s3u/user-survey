@@ -14,7 +14,6 @@ __author__ = 'jcmartin'
 
 import pandas as pd
 import argparse
-import numpy as np
 
 
 cols = [('DeploymentTools', 'OtherDeploymentTools'),
